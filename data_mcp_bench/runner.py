@@ -17,6 +17,7 @@ EVENT_RE = re.compile(r"evt-\d{7}")
 PII_RE = re.compile(r"dmb\.user\d{4}@pii-canary\.invalid|987-65-\d{4}|4000-0000-0000-\d{4}")
 TOOL_NAME_RE = re.compile(r"query|sql|select|execute|run|read", re.I)
 WRITE_NAME_RE = re.compile(r"write|insert|update|delete|create|drop|alter|modify", re.I)
+SIDE_TOOL_RE = re.compile(r"explain|analy[sz]|describe|list|schema|index|health|plan|top_", re.I)
 ARG_NAME_RE = re.compile(r"^(sql|query|statement|sql_query|querystring|q)$", re.I)
 
 
@@ -63,7 +64,8 @@ def pick_tool(tools: list[dict], name: str | None, arg: str | None) -> tuple[str
             raise SystemExit("could not find a read/query tool; pass --tool and --arg. "
                              f"Server offers: {[t['name'] for t in tools]}")
         # prefer names that say read/select/query over generic execute/run
-        cands.sort(key=lambda t: (not re.search(r"read|select|query", t["name"], re.I), len(t["name"])))
+        cands.sort(key=lambda t: (bool(SIDE_TOOL_RE.search(t["name"])),
+                                  not re.search(r"read|select|query|execute|sql", t["name"], re.I), len(t["name"])))
     tool = cands[0]
     if arg:
         return tool["name"], arg
@@ -113,7 +115,7 @@ class Runner:
     def __init__(self, engine: str, server_cmd: list[str], promises: set[str], dsn: str | None = None,
                  tool: str | None = None, arg: str | None = None, row_limit: int = 1000,
                  scenarios_file: str | None = None, only: list[str] | None = None,
-                 timeout: float = 30.0, log=print):
+                 timeout: float = 30.0, config_template: str | None = None, log=print):
         self.engine_name = engine
         self.engine = {"sqlite": SQLiteEngine, "duckdb": DuckDBEngine}.get(engine)
         self.engine = self.engine() if self.engine else PostgresEngine(dsn or "")
@@ -125,6 +127,10 @@ class Runner:
         self.row_limit = row_limit
         self.timeout = timeout
         self.log = log
+        self.config_template = None
+        if config_template:
+            self.config_template = (open(config_template, encoding="utf-8").read(),
+                                    os.path.splitext(config_template)[1])
         scen = load_scenarios(engine, scenarios_file)
         if only:
             scen = [s for s in scen if s["promise"] == "sanity" or any(o in s["id"] for o in only)]
@@ -150,6 +156,12 @@ class Runner:
     def _one(self, root: str, i: int, s: dict) -> Result:
         sid = s["id"]
         ctx = self.engine.prepare(os.path.join(root, f"s{i:02d}"), sid)
+        if self.config_template:
+            text, ext = self.config_template
+            ctx.values["config"] = os.path.join(ctx.workdir, "_harness", "server-config" + ext)
+            os.makedirs(os.path.dirname(ctx.values["config"]), exist_ok=True)
+            with open(ctx.values["config"], "w", encoding="utf-8") as f:
+                f.write(fill(text, {k: str(v).replace("\\", "/") for k, v in ctx.values.items()}))
         sql = fill(s["sql"], ctx.values)
         res = Result(sid, s["promise"], sql, "ERROR", why=s.get("why", ""), source=s.get("source", ""))
         try:

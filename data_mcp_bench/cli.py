@@ -6,7 +6,8 @@
 
 Placeholders in the server command: {db} (sqlite/duckdb file path, or postgres
 database name), {dsn} (postgres URL, superuser), {reader_dsn} (postgres URL for
-a SELECT-only role), {dir} (the scenario's working directory).
+a SELECT-only role), {dir} (the scenario's working directory), {config} (a
+per-scenario copy of --server-config with these placeholders filled in).
 """
 from __future__ import annotations
 
@@ -41,6 +42,8 @@ def main(argv=None):
     r.add_argument("--row-limit", type=int, default=1000, help="max rows a bounded server may return")
     r.add_argument("--only", help="comma-separated substrings of scenario ids to run")
     r.add_argument("--scenarios", help="path to a custom scenario YAML file")
+    r.add_argument("--server-config", help="template file filled with the placeholders per scenario; "
+                   "its path is passed to the server command as {config}")
     r.add_argument("--timeout", type=float, default=30.0, help="seconds per MCP request")
     r.add_argument("--json", help="write the JSON report here")
     r.add_argument("--markdown", help="write the Markdown report here")
@@ -56,7 +59,8 @@ def main(argv=None):
     print(f"data-mcp-bench {__version__}: {a.engine}, promises {sorted(promises)}")
     runner = Runner(a.engine, server_cmd, promises, dsn=a.dsn, tool=a.tool, arg=a.arg,
                     row_limit=a.row_limit, scenarios_file=a.scenarios,
-                    only=a.only.split(",") if a.only else None, timeout=a.timeout)
+                    only=a.only.split(",") if a.only else None, timeout=a.timeout,
+                    config_template=a.server_config)
     results = runner.run()
     meta = {"version": __version__, "engine": a.engine, "server": shlex.join(server_cmd),
             "tool": runner.tool, "arg": runner.arg, "row_limit": a.row_limit}

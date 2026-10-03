@@ -41,3 +41,8 @@ def test_describe_diff():
     assert "items: 5 rows -> 0 rows" in d
     assert "pragma:user_version: 0 -> 42" in d
     assert "new file out.db (8192 bytes)" in d
+
+
+def test_pick_tool_skips_explain_tools():
+    tools = [tool("explain_query", "sql"), tool("execute_sql", "sql"), tool("list_schemas")]
+    assert pick_tool(tools, None, None) == ("execute_sql", "sql")
