@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "data-mcp-bench"
+version = "0.1.0"
+description = "Attack a database MCP server, then ask the database what happened: a test suite that proves whether read-only, file confinement, row limits and PII masking actually hold"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Arshdeep Ghotra" }]
+keywords = ["mcp", "model-context-protocol", "sql", "security", "read-only", "postgres", "sqlite", "duckdb", "ai-agents", "testing"]
+dependencies = ["pyyaml>=6"]
+
+[project.optional-dependencies]
+duckdb = ["duckdb>=1.0"]
+postgres = ["psycopg[binary]>=3.1"]
+all = ["duckdb>=1.0", "psycopg[binary]>=3.1"]
+
+[project.scripts]
+data-mcp-bench = "data_mcp_bench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/idk-arsh/data-mcp-bench"
+
+[tool.hatch.build.targets.wheel]
+packages = ["data_mcp_bench"]

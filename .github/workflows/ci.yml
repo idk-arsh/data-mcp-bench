@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python-version: "3.10" }
+          - { os: ubuntu-latest, python-version: "3.13" }
+          - { os: windows-latest, python-version: "3.13" }
+    services:
+      postgres:
+        image: ${{ matrix.os == 'ubuntu-latest' && 'postgres:17' || '' }}
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DMB_PG_DSN: ${{ matrix.os == 'ubuntu-latest' && 'postgresql://postgres@localhost:55432/postgres' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[all]" pytest
+      - run: python -m pytest tests -q
+
+  action:
+    # dogfood: the composite action against the hardened reference server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: ./
+        with:
+          engine: sqlite
+          expect: read-only,confined,bounded,masked
+          version: ${{ github.sha }}
+          server-command: python examples/reference_server.py --mode hardened --engine sqlite --db {db}

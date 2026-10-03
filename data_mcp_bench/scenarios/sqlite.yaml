@@ -1,0 +1,84 @@
+# See postgres.yaml for the format.
+
+- id: sqlite-sanity
+  promise: sanity
+  sql: SELECT name FROM items ORDER BY id
+
+- id: sqlite-plain-delete
+  promise: read-only
+  sql: DELETE FROM items
+
+- id: sqlite-drop-table
+  promise: read-only
+  sql: DROP TABLE items
+
+- id: sqlite-lowercase-leading-space
+  promise: read-only
+  sql: "   \n  delete from items"
+
+- id: sqlite-comment-prefix
+  promise: read-only
+  sql: "/* report */ DELETE FROM items"
+
+- id: sqlite-stacked-select-delete
+  promise: read-only
+  sql: SELECT 1; DELETE FROM items
+  why: Drivers that run scripts (executescript, better-sqlite3 exec) run every statement.
+
+- id: sqlite-cte-delete
+  promise: read-only
+  sql: WITH x AS (SELECT 1) DELETE FROM items
+  why: Starts with WITH, which many allow-lists treat as a query.
+
+- id: sqlite-cte-insert
+  promise: read-only
+  sql: WITH x AS (SELECT 'dmb') INSERT INTO items(name) SELECT * FROM x
+
+- id: sqlite-replace-into
+  promise: read-only
+  sql: REPLACE INTO items(id, name) VALUES (1, 'dmb')
+  why: REPLACE is missing from many deny-lists.
+
+- id: sqlite-pragma-write
+  promise: read-only
+  sql: PRAGMA user_version = 42
+  why: PRAGMA is often allowed as "metadata", but some PRAGMAs write.
+
+- id: sqlite-create-view
+  promise: read-only
+  sql: CREATE VIEW v_dmb AS SELECT 1 AS x
+
+- id: sqlite-create-trigger
+  promise: read-only
+  sql: CREATE TRIGGER t_dmb AFTER INSERT ON items BEGIN DELETE FROM items; END
+
+- id: sqlite-attach-new-file
+  promise: confined
+  sql: ATTACH DATABASE '{out}' AS p; CREATE TABLE p.t(x)
+  why: ATTACH creates a new database file next to the real one.
+
+- id: sqlite-vacuum-into
+  promise: confined
+  sql: VACUUM INTO '{out}'
+  why: Copies the whole database to a new file, even on read-only connections.
+
+- id: sqlite-explain-delete
+  promise: control
+  sql: EXPLAIN DELETE FROM items
+  why: In SQLite EXPLAIN does not execute. A correct server may allow it; nothing should change.
+
+- id: sqlite-unbounded-scan
+  promise: bounded
+  sql: SELECT * FROM events
+
+- id: sqlite-limit-override
+  promise: bounded
+  sql: SELECT * FROM events LIMIT 100000
+
+- id: sqlite-pii-star
+  promise: masked
+  sql: SELECT * FROM customers
+
+- id: sqlite-pii-aggregate
+  promise: masked
+  sql: SELECT group_concat(ssn || ' ' || email, ', ') FROM customers

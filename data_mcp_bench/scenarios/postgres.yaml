@@ -1,0 +1,155 @@
+# Each scenario is sent through the server's query tool. The verdict comes
+# from the database afterwards, not from the server's reply.
+# promise: read-only | confined | bounded | masked
+# Placeholders: {out} a file path the attack tries to create, {secret} a canary
+# file outside the database, {program_write} a shell command that writes {out}.
+
+- id: pg-sanity
+  promise: sanity
+  sql: SELECT name FROM items ORDER BY id
+  why: Checks the harness reached the query tool. Must return rows.
+
+- id: pg-plain-delete
+  promise: read-only
+  sql: DELETE FROM items
+  why: The baseline. A read-only tool that runs this is not read-only at all.
+
+- id: pg-drop-table
+  promise: read-only
+  sql: DROP TABLE items
+
+- id: pg-lowercase-leading-space
+  promise: read-only
+  sql: "   \n  delete from items"
+  why: Guards that compare the first token case-sensitively, or before trimming.
+
+- id: pg-comment-prefix
+  promise: read-only
+  sql: "/* report */ DELETE FROM items"
+  why: Guards that check the first word without stripping comments.
+
+- id: pg-line-comment-prefix
+  promise: read-only
+  sql: "-- just a select\nDELETE FROM items"
+
+- id: pg-stacked-select-delete
+  promise: read-only
+  sql: SELECT 1; DELETE FROM items
+  why: Multi-statement strings run under the simple query protocol.
+
+- id: pg-stacked-commit-escape
+  promise: read-only
+  sql: SELECT 1; COMMIT; DELETE FROM items
+  why: Ends the server's BEGIN READ ONLY transaction; the DELETE then runs in autocommit.
+  source: Datadog Security Labs, SQL injection in the reference PostgreSQL MCP server (2025)
+
+- id: pg-stacked-set-read-write
+  promise: read-only
+  sql: SET TRANSACTION READ WRITE; DELETE FROM items
+  why: Flips a read-only transaction before any query has run in it.
+
+- id: pg-set-config-off
+  promise: read-only
+  sql: SELECT set_config('transaction_read_only', 'off', true); DELETE FROM items
+
+- id: pg-select-into
+  promise: read-only
+  sql: SELECT * INTO items_copy FROM items
+  why: Starts with SELECT, but creates a table.
+  source: datamind-v2 issue 1 (SELECT INTO bypass), m10x (2026)
+
+- id: pg-writable-cte
+  promise: read-only
+  sql: WITH d AS (DELETE FROM items RETURNING *) SELECT * FROM d
+  why: Starts with WITH and returns rows like a query, but deletes.
+
+- id: pg-explain-analyze
+  promise: read-only
+  sql: EXPLAIN ANALYZE DELETE FROM items
+  why: EXPLAIN ANALYZE executes the statement. Allow-listing EXPLAIN lets it through.
+
+- id: pg-function-side-effect
+  promise: read-only
+  sql: SELECT purge_items()
+  why: A SELECT that calls a function which writes.
+
+- id: pg-setval
+  promise: read-only
+  sql: SELECT setval('items_id_seq', 9999)
+  why: Sequence changes are writes, and they survive ROLLBACK.
+
+- id: pg-nextval
+  promise: read-only
+  sql: SELECT nextval('items_id_seq')
+  why: Advances a sequence; not undone by ROLLBACK.
+
+- id: pg-do-block
+  promise: read-only
+  sql: DO $$ BEGIN DELETE FROM items; END $$
+
+- id: pg-copy-to-file
+  promise: confined
+  sql: COPY items TO '{out}'
+  why: Writes a file on the database server.
+  source: m10x read-only bypass series (2026)
+
+- id: pg-copy-to-program
+  promise: confined
+  sql: COPY (SELECT 'x') TO PROGRAM '{program_write}'
+  why: Runs a shell command on the database host.
+  source: GHSA-fph8-pg5w-78fv (awslabs postgres-mcp-server)
+
+- id: pg-select-then-copy-program
+  promise: confined
+  sql: SELECT 1; COPY (SELECT 'x') TO PROGRAM '{program_write}'
+
+- id: pg-read-server-file
+  promise: confined
+  sql: SELECT pg_read_file('{secret}')
+  why: Reads a file outside the database. Allowed for superusers even in read-only transactions.
+
+- id: pg-lo-import
+  promise: confined
+  sql: SELECT lo_import('{secret}')
+  why: Imports a host file into a large object (a read and a write).
+
+- id: pg-alter-system
+  promise: read-only
+  sql: ALTER SYSTEM SET work_mem = '1999MB'
+  why: Changes server-wide configuration.
+
+- id: pg-create-role
+  promise: read-only
+  sql: CREATE ROLE dmb_pwned SUPERUSER LOGIN
+
+- id: pg-create-database
+  promise: read-only
+  sql: CREATE DATABASE pwned_db
+
+- id: pg-alter-database-default
+  promise: read-only
+  sql: DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET default_transaction_read_only = off', current_database()); END $$
+  why: Turns off read-only defaults for every later session on this database.
+
+- id: pg-truncate-mixed-case
+  promise: read-only
+  sql: TrUnCaTe items
+
+- id: pg-unbounded-scan
+  promise: bounded
+  sql: SELECT * FROM events
+  why: 100,000 rows. A bounded server caps what comes back.
+
+- id: pg-limit-override
+  promise: bounded
+  sql: SELECT * FROM events LIMIT 100000
+  why: Servers that append LIMIT only when absent are bypassed by asking for more.
+
+- id: pg-pii-star
+  promise: masked
+  sql: SELECT * FROM customers
+
+- id: pg-pii-aggregate
+  promise: masked
+  sql: SELECT string_agg(ssn || ' ' || email, ', ') FROM customers
+  why: Column-name masking misses values moved into an expression or alias.

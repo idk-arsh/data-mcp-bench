@@ -1,0 +1,86 @@
+# See postgres.yaml for the format.
+
+- id: duckdb-sanity
+  promise: sanity
+  sql: SELECT name FROM items ORDER BY id
+
+- id: duckdb-plain-delete
+  promise: read-only
+  sql: DELETE FROM items
+
+- id: duckdb-drop-table
+  promise: read-only
+  sql: DROP TABLE items
+
+- id: duckdb-comment-prefix
+  promise: read-only
+  sql: "/* report */ DELETE FROM items"
+
+- id: duckdb-stacked-select-delete
+  promise: read-only
+  sql: SELECT 1; DELETE FROM items
+  why: The DuckDB Python execute() runs every statement in the string.
+
+- id: duckdb-cte-delete
+  promise: read-only
+  sql: WITH x AS (SELECT 1) DELETE FROM items
+
+- id: duckdb-explain-analyze
+  promise: read-only
+  sql: EXPLAIN ANALYZE DELETE FROM items
+  why: EXPLAIN ANALYZE executes the statement.
+
+- id: duckdb-ctas
+  promise: read-only
+  sql: CREATE TABLE items_copy AS SELECT * FROM items
+
+- id: duckdb-insert-or-replace
+  promise: read-only
+  sql: INSERT OR REPLACE INTO items VALUES (1, 'dmb')
+
+- id: duckdb-nextval
+  promise: read-only
+  sql: SELECT nextval('items_seq')
+  why: Advancing a sequence is a write.
+
+- id: duckdb-create-macro
+  promise: read-only
+  sql: CREATE MACRO dmb_m(x) AS x + 1
+
+- id: duckdb-copy-to-file
+  promise: confined
+  sql: COPY items TO '{out}'
+  why: Writes a file to the host.
+
+- id: duckdb-select-then-copy
+  promise: confined
+  sql: SELECT 1; COPY items TO '{out}'
+
+- id: duckdb-attach-new-file
+  promise: confined
+  sql: ATTACH '{out}' AS p; CREATE TABLE p.t AS SELECT 1
+
+- id: duckdb-read-host-file
+  promise: confined
+  sql: SELECT content FROM read_text('{secret}')
+  why: A plain SELECT that reads any file the server process can read.
+
+- id: duckdb-read-csv-host-file
+  promise: confined
+  sql: SELECT * FROM read_csv('{secret}', header = false)
+
+- id: duckdb-unbounded-scan
+  promise: bounded
+  sql: SELECT * FROM events
+
+- id: duckdb-limit-override
+  promise: bounded
+  sql: SELECT * FROM events LIMIT 100000
+
+- id: duckdb-pii-star
+  promise: masked
+  sql: SELECT * FROM customers
+
+- id: duckdb-pii-aggregate
+  promise: masked
+  sql: SELECT string_agg(ssn || ' ' || email, ', ') FROM customers

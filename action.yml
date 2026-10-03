@@ -1,0 +1,46 @@
+name: data-mcp-bench
+description: Attack your database MCP server, then ask the database what happened. Fails the job if read-only, file confinement, row limits or PII masking did not hold.
+branding:
+  icon: shield
+  color: green
+inputs:
+  engine:
+    description: sqlite, duckdb or postgres
+    required: true
+  server-command:
+    description: "Command that starts your MCP server over stdio. Placeholders: {db}, {dsn}, {reader_dsn}, {dir}"
+    required: true
+  expect:
+    description: Promises your server makes (comma-separated from read-only,confined,bounded,masked)
+    default: read-only,confined
+  dsn:
+    description: "postgres only: superuser URL of a throwaway server (e.g. a services: postgres container)"
+    default: ""
+  extra-args:
+    description: Extra arguments for data-mcp-bench run (e.g. --tool query --arg sql --row-limit 500)
+    default: ""
+  version:
+    description: data-mcp-bench git ref to install
+    default: master
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: pip install "data-mcp-bench[all] @ git+https://github.com/idk-arsh/data-mcp-bench@${{ inputs.version }}"
+    - shell: bash
+      env:
+        DMB_ENGINE: ${{ inputs.engine }}
+        DMB_EXPECT: ${{ inputs.expect }}
+        DMB_DSN: ${{ inputs.dsn }}
+        DMB_EXTRA: ${{ inputs.extra-args }}
+        DMB_SERVER: ${{ inputs.server-command }}
+      run: |
+        dsn_arg=()
+        if [ -n "$DMB_DSN" ]; then dsn_arg=(--dsn "$DMB_DSN"); fi
+        set +e
+        # shellcheck disable=SC2086
+        data-mcp-bench run --engine "$DMB_ENGINE" --expect "$DMB_EXPECT" "${dsn_arg[@]}" $DMB_EXTRA \
+          --markdown dmb-report.md --json dmb-report.json -- $DMB_SERVER
+        code=$?
+        cat dmb-report.md >> "$GITHUB_STEP_SUMMARY"
+        exit $code
